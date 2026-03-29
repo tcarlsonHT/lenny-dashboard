@@ -4228,16 +4228,35 @@ function addCurveFromForm(){
 }
 
 const DAILY=['waterChart','foodChart','comboChart'];
+let zoomSyncLock=false;
+function sameRange(gd,r0,r1){
+  const xr=gd&&gd.layout&&gd.layout.xaxis&&gd.layout.xaxis.range;
+  if(!xr||xr.length<2)return false;
+  return String(xr[0])===String(r0)&&String(xr[1])===String(r1);
+}
 function syncZoom(src,r0,r1,auto){
+  if(zoomSyncLock) return;
+  zoomSyncLock=true;
+  const jobs=[];
   DAILY.forEach(id=>{
     if(id===src)return;
-    if(auto)Plotly.relayout(id,{'xaxis.autorange':true});
-    else Plotly.relayout(id,{'xaxis.range[0]':r0,'xaxis.range[1]':r1});
+    const gd=document.getElementById(id);
+    if(!gd||!gd.layout||!gd.layout.xaxis)return;
+    if(auto){
+      if(gd.layout.xaxis.autorange===true)return;
+      jobs.push(Plotly.relayout(gd,{'xaxis.autorange':true}));
+    }else{
+      if(sameRange(gd,r0,r1))return;
+      jobs.push(Plotly.relayout(gd,{'xaxis.range':[r0,r1]}));
+    }
   });
+  Promise.allSettled(jobs).finally(()=>{zoomSyncLock=false;});
 }
 function setupZoom(){
   DAILY.forEach(id=>{
-    document.getElementById(id).on('plotly_relayout',function(ed){
+    const gd=document.getElementById(id);
+    gd.on('plotly_relayout',function(ed){
+      if(zoomSyncLock)return;
       if(ed['xaxis.range[0]']!==undefined)syncZoom(id,ed['xaxis.range[0]'],ed['xaxis.range[1]'],false);
       else if(ed['xaxis.autorange'])syncZoom(id,null,null,true);
     });
@@ -4247,12 +4266,16 @@ function setupZoom(){
 function zoomTo(preset){
   const ranges={all:['2025-06-07','2026-03-29'],'3m':['2025-12-29','2026-03-29'],'6w':['2026-02-10','2026-03-29'],dose4:['2026-02-01','2026-03-10'],dose5:['2026-03-01','2026-03-29'],transition:['2026-01-20','2026-03-15']};
   const r=ranges[preset];
-  if(!r || !window.Plotly) return;
+  if(!r || !window.Plotly || zoomSyncLock) return;
+  zoomSyncLock=true;
+  const jobs=[];
   DAILY.forEach(id=>{
     const gd=document.getElementById(id);
     if(!gd || !gd.layout) return;
-    Plotly.relayout(gd,{'xaxis.range[0]':r[0],'xaxis.range[1]':r[1]});
+    if(sameRange(gd,r[0],r[1])) return;
+    jobs.push(Plotly.relayout(gd,{'xaxis.range':r}));
   });
+  Promise.allSettled(jobs).finally(()=>{zoomSyncLock=false;});
 }
 </script>
 </body>
